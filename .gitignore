@@ -1,0 +1,9 @@
+venv/
+__pycache__/
+*.pyc
+*.pyd
+.env
+data/raw_payloads/
+data/cache/
+logs/
+models/
