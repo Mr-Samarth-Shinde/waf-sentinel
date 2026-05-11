@@ -3,6 +3,9 @@ import sys, os
 sys.path.insert(0, os.path.abspath("."))
 sys.path.insert(0, os.path.abspath(os.path.dirname(__file__) + "/.."))
 
+from waf.startup import ensure_models
+ensure_models()
+
 import sqlite3
 import datetime
 from flask import Flask, request, jsonify, Response
@@ -10,9 +13,8 @@ from flask_cors import CORS
 import requests as req_lib
 from waf.model_loader import WAFModel
 
-app    = Flask(__name__)
+app   = Flask(__name__)
 CORS(app)
-model  = WAFModel()
 DB     = "logs/attacks.db"
 TARGET = os.environ.get("WAF_TARGET", "http://127.0.0.1:8080")
 
@@ -22,14 +24,8 @@ def init_db():
     con = sqlite3.connect(DB)
     con.execute("""CREATE TABLE IF NOT EXISTS logs (
         id          INTEGER PRIMARY KEY AUTOINCREMENT,
-        timestamp   TEXT,
-        ip          TEXT,
-        method      TEXT,
-        path        TEXT,
-        payload     TEXT,
-        score       REAL,
-        action      TEXT,
-        attack_type TEXT
+        timestamp   TEXT, ip TEXT, method TEXT, path TEXT,
+        payload     TEXT, score REAL, action TEXT, attack_type TEXT
     )""")
     con.commit()
     con.close()
@@ -88,59 +84,39 @@ def owasp_check(payload):
 def intercept():
     if request.path.startswith("/waf-dashboard"):
         return None
-
     payload = extract_payload(request)
-    ip      = request.remote_addr
-    method  = request.method
-    path    = request.path
-
     if not payload.strip():
         return None
-
+    ip     = request.remote_addr
+    method = request.method
+    path   = request.path
     action, score, attack_type = model.predict(payload)
     log_event(ip, method, path, payload, score, action, attack_type)
-
     if action == "BLOCK":
-        print(f"[BLOCK] {ip} | {attack_type.upper()} | score={score} | {payload[:80]}")
-        return jsonify({
-            "error":       "Request blocked by WAF",
-            "attack_type": attack_type,
-            "score":       score,
-            "code":        403
-        }), 403
-
+        print(f"[BLOCK] {ip} | {attack_type.upper()} | score={score}")
+        return jsonify({"error":"Request blocked by WAF",
+                        "attack_type":attack_type,"score":score,"code":403}), 403
     if action == "REVIEW":
         detected = owasp_check(payload)
         if detected:
-            print(f"[BLOCK-OWASP] {ip} | {detected.upper()} | {payload[:80]}")
             log_event(ip, method, path, payload, score, "BLOCK-OWASP", detected)
-            return jsonify({
-                "error":       "Blocked by OWASP rules",
-                "attack_type": detected,
-                "score":       score,
-                "code":        403
-            }), 403
-
+            return jsonify({"error":"Blocked by OWASP rules",
+                            "attack_type":detected,"score":score,"code":403}), 403
     return None
 
 # ── Proxy forward ─────────────────────────────────────────────────────────────
-@app.route("/", defaults={"path": ""}, methods=["GET","POST","PUT","DELETE","PATCH"])
-@app.route("/<path:path>",             methods=["GET","POST","PUT","DELETE","PATCH"])
+@app.route("/", defaults={"path":""}, methods=["GET","POST","PUT","DELETE","PATCH"])
+@app.route("/<path:path>",            methods=["GET","POST","PUT","DELETE","PATCH"])
 def proxy(path):
-    url = f"{TARGET}/{path}"
     try:
         resp = req_lib.request(
-            method=request.method,
-            url=url,
-            headers={k: v for k, v in request.headers if k.lower() != "host"},
-            data=request.get_data(),
-            params=request.args,
-            timeout=10,
-            allow_redirects=False
-        )
+            method=request.method, url=f"{TARGET}/{path}",
+            headers={k:v for k,v in request.headers if k.lower()!="host"},
+            data=request.get_data(), params=request.args,
+            timeout=10, allow_redirects=False)
         return Response(resp.content, status=resp.status_code, headers=dict(resp.headers))
     except req_lib.exceptions.ConnectionError:
-        return jsonify({"message": "WAF active — backend offline"}), 200
+        return jsonify({"message":"WAF active — backend offline"}), 200
 
 # ── Dashboard API ─────────────────────────────────────────────────────────────
 @app.route("/waf-dashboard/logs")
@@ -149,7 +125,7 @@ def api_logs():
     rows = con.execute("SELECT * FROM logs ORDER BY id DESC LIMIT 200").fetchall()
     con.close()
     keys = ["id","timestamp","ip","method","path","payload","score","action","attack_type"]
-    return jsonify([dict(zip(keys, r)) for r in rows])
+    return jsonify([dict(zip(keys,r)) for r in rows])
 
 @app.route("/waf-dashboard/stats")
 def api_stats():
@@ -159,40 +135,33 @@ def api_stats():
     by_type = con.execute("SELECT attack_type, COUNT(*) FROM logs GROUP BY attack_type").fetchall()
     recent  = con.execute("SELECT timestamp, action FROM logs ORDER BY id DESC LIMIT 50").fetchall()
     con.close()
-    return jsonify({
-        "total":   total,
-        "blocked": blocked,
-        "allowed": total - blocked,
-        "by_type": dict(by_type),
-        "recent":  [{"timestamp": r[0], "action": r[1]} for r in recent]
-    })
+    return jsonify({"total":total,"blocked":blocked,"allowed":total-blocked,
+                    "by_type":dict(by_type),
+                    "recent":[{"timestamp":r[0],"action":r[1]} for r in recent]})
 
 @app.route("/waf-dashboard/test", methods=["POST"])
 def api_test():
-    data    = request.json or {}
-    payload = data.get("payload", "")
+    payload = (request.json or {}).get("payload","")
     if not payload:
-        return jsonify({"error": "No payload provided"}), 400
+        return jsonify({"error":"No payload provided"}), 400
     action, score, attack_type = model.predict(payload)
-    return jsonify({
-        "payload":     payload,
-        "action":      action,
-        "score":       score,
-        "attack_type": attack_type,
-        "blocked":     action in ("BLOCK", "REVIEW")
-    })
+    return jsonify({"payload":payload,"action":action,"score":score,
+                    "attack_type":attack_type,"blocked":action in("BLOCK","REVIEW")})
 
 @app.route("/waf-dashboard/health")
 def health():
-    return jsonify({"status": "ok", "version": "1.0", "models": ["rf","xgb"]})
+    return jsonify({"status":"ok","version":"1.0","models":["rf","xgb"]})
 
-# ── Start ─────────────────────────────────────────────────────────────────────
+# ── Initialize on startup (works for both gunicorn and direct run) ────────────
+init_db()
+model = WAFModel()
+model.load()
+
+# ── Direct run ────────────────────────────────────────────────────────────────
 if __name__ == "__main__":
-    init_db()
-    model.load()
-    print("\n" + "="*55)
-    print("  WAF Proxy    → http://localhost:5000")
-    print("  Stats API    → http://localhost:5000/waf-dashboard/stats")
-    print("  Payload test → POST /waf-dashboard/test")
-    print("="*55 + "\n")
-    app.run(host="0.0.0.0", port=5000, debug=False)
+    port = int(os.environ.get("PORT", 5000))
+    print(f"\n{'='*55}")
+    print(f"  WAF Proxy    → http://0.0.0.0:{port}")
+    print(f"  Dashboard    → http://localhost:{port}/waf-dashboard/stats")
+    print(f"{'='*55}\n")
+    app.run(host="0.0.0.0", port=port, debug=False)
