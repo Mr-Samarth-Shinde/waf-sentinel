@@ -1,0 +1,772 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+<title>WAF SENTINEL — Threat Intelligence Dashboard</title>
+<link href="https://fonts.googleapis.com/css2?family=Share+Tech+Mono&family=Orbitron:wght@400;600;800;900&family=Rajdhani:wght@300;400;500;600;700&display=swap" rel="stylesheet"/>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.0/chart.umd.min.js"></script>
+<style>
+:root{
+  --bg:#020408;--panel:#060e18;--border:#0a2a40;--border2:#0d3a58;
+  --cyan:#00d4ff;--cyan2:#00a8cc;--green:#00ff88;--red:#ff2d55;
+  --orange:#ff8c00;--yellow:#ffe600;--purple:#9b59ff;
+  --text:#c8e8f8;--text2:#5a8aa8;--text3:#2a5070;
+}
+*{margin:0;padding:0;box-sizing:border-box}
+html,body{height:100%;overflow-x:hidden}
+body{font-family:'Rajdhani',sans-serif;background:var(--bg);color:var(--text);min-height:100vh;cursor:crosshair}
+body::before{content:'';position:fixed;inset:0;background:repeating-linear-gradient(0deg,transparent,transparent 2px,rgba(0,0,0,.07) 2px,rgba(0,0,0,.07) 4px);pointer-events:none;z-index:9999}
+body::after{content:'';position:fixed;inset:0;background-image:linear-gradient(rgba(0,212,255,.025) 1px,transparent 1px),linear-gradient(90deg,rgba(0,212,255,.025) 1px,transparent 1px);background-size:40px 40px;pointer-events:none;z-index:0}
+.wrap{position:relative;z-index:1;min-height:100vh;display:flex;flex-direction:column}
+
+/* HEADER */
+header{display:flex;align-items:center;gap:20px;padding:13px 28px;background:linear-gradient(90deg,rgba(0,212,255,.06),transparent);border-bottom:1px solid var(--border2);position:relative;overflow:hidden}
+header::after{content:'';position:absolute;bottom:0;left:0;right:0;height:1px;background:linear-gradient(90deg,var(--cyan),transparent,var(--cyan2),transparent);animation:scan 4s linear infinite}
+@keyframes scan{0%{transform:translateX(-100%)}100%{transform:translateX(100%)}}
+@keyframes logopulse{0%,100%{box-shadow:0 0 20px rgba(0,212,255,.4)}50%{box-shadow:0 0 35px rgba(0,212,255,.7)}}
+@keyframes glitch{0%,95%,100%{transform:translate(0)}96%{transform:translate(-2px,1px);filter:hue-rotate(90deg)}97%{transform:translate(2px,-1px)}98%{transform:translate(-1px,2px);filter:hue-rotate(-90deg)}}
+@keyframes blink{0%,100%{opacity:1;box-shadow:0 0 8px var(--green)}50%{opacity:.3;box-shadow:none}}
+.logo-block{display:flex;align-items:center;gap:12px}
+.logo-icon{width:42px;height:42px;border:1.5px solid var(--cyan);border-radius:4px;display:flex;align-items:center;justify-content:center;font-size:20px;background:rgba(0,212,255,.08);animation:logopulse 3s ease-in-out infinite;flex-shrink:0}
+.logo-text{font-family:'Orbitron',monospace;font-size:18px;font-weight:900;letter-spacing:3px;color:var(--cyan);animation:glitch 8s infinite}
+.logo-sub{font-size:10px;color:var(--text2);letter-spacing:4px;text-transform:uppercase}
+.header-mid{flex:1;display:flex;justify-content:center;align-items:center;gap:28px}
+.hstat{text-align:center}
+.hstat-val{font-family:'Orbitron',monospace;font-size:13px;font-weight:600;color:var(--cyan)}
+.hstat-lab{font-size:9px;color:var(--text3);letter-spacing:2px;text-transform:uppercase}
+.hdiv{width:1px;height:28px;background:var(--border2)}
+.live-badge{display:flex;align-items:center;gap:8px;padding:6px 14px;border:1px solid var(--green);border-radius:2px;background:rgba(0,255,136,.06);font-family:'Share Tech Mono',monospace;font-size:11px;color:var(--green);letter-spacing:2px}
+.live-dot{width:7px;height:7px;border-radius:50%;background:var(--green);animation:blink 1.2s ease-in-out infinite}
+.clock{font-family:'Share Tech Mono',monospace;font-size:12px;color:var(--text2);letter-spacing:1px}
+
+/* LAYOUT */
+.main{flex:1;display:grid;grid-template-columns:250px 1fr;min-height:0}
+
+/* SIDEBAR */
+.sidebar{background:var(--panel);border-right:1px solid var(--border);display:flex;flex-direction:column;overflow-y:auto}
+.sb-sec{padding:16px 18px;border-bottom:1px solid var(--border);flex-shrink:0}
+.sb-label{font-family:'Share Tech Mono',monospace;font-size:9px;color:var(--text3);letter-spacing:3px;text-transform:uppercase;margin-bottom:12px;display:flex;align-items:center;gap:8px}
+.sb-label::after{content:'';flex:1;height:1px;background:var(--border2)}
+
+/* THREAT RING */
+.threat-ring{position:relative;width:120px;height:120px;margin:0 auto 10px}
+.threat-ring svg{transform:rotate(-90deg)}
+.ring-bg{fill:none;stroke:var(--border2);stroke-width:7}
+.ring-fill{fill:none;stroke-width:7;stroke-linecap:round;stroke-dasharray:327;stroke-dashoffset:327;transition:stroke-dashoffset 1.5s cubic-bezier(.4,0,.2,1),stroke .5s}
+.ring-label{position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center}
+.ring-pct{font-family:'Orbitron',monospace;font-size:20px;font-weight:800;color:var(--cyan);transition:color .5s}
+.ring-sub{font-size:8px;letter-spacing:2px;color:var(--text2);text-transform:uppercase;margin-top:2px}
+.level-row{display:flex;justify-content:space-between;align-items:center;margin-bottom:3px}
+.level-name{font-size:10px;font-weight:600;letter-spacing:1px}
+.level-val{font-family:'Share Tech Mono',monospace;font-size:10px;color:var(--text2)}
+.level-track{height:3px;background:var(--border2);border-radius:2px;margin-bottom:5px;overflow:hidden}
+.level-fill{height:100%;border-radius:2px;transition:width 1s ease;width:0%}
+
+/* ATTACK LIST */
+.atk-item{display:flex;align-items:center;gap:8px;padding:6px 0;border-bottom:1px solid rgba(10,42,64,.5);cursor:pointer;transition:.2s}
+.atk-item:hover{padding-left:4px}
+.atk-item:last-child{border-bottom:none}
+.atk-dot{width:7px;height:7px;border-radius:50%;flex-shrink:0}
+.atk-name{flex:1;font-size:11px;font-weight:600;letter-spacing:1px;text-transform:uppercase}
+.atk-bar-wrap{width:40px;height:3px;background:var(--border2);border-radius:2px;overflow:hidden}
+.atk-bar{height:100%;border-radius:2px;transition:width .8s ease}
+.atk-count{font-family:'Share Tech Mono',monospace;font-size:10px;color:var(--text2);min-width:24px;text-align:right}
+
+/* NAV */
+.nav-item{display:flex;align-items:center;gap:10px;padding:9px 12px;border-radius:2px;cursor:pointer;margin-bottom:2px;font-size:12px;font-weight:600;letter-spacing:1px;text-transform:uppercase;transition:.2s;color:var(--text2);border-left:2px solid transparent}
+.nav-item:hover,.nav-item.active{background:rgba(0,212,255,.06);color:var(--cyan);border-left-color:var(--cyan)}
+.nav-icon{font-size:13px;width:18px;text-align:center}
+
+/* CONTENT */
+.content{padding:18px;display:flex;flex-direction:column;gap:14px;overflow-y:auto}
+.content::-webkit-scrollbar{width:4px}
+.content::-webkit-scrollbar-thumb{background:var(--border2);border-radius:2px}
+
+/* STAT CARDS */
+.stat-row{display:grid;grid-template-columns:repeat(4,1fr);gap:10px}
+.scard{background:var(--panel);border:1px solid var(--border);border-radius:3px;padding:14px 16px;position:relative;overflow:hidden;transition:border-color .3s,transform .2s;cursor:default}
+.scard:hover{transform:translateY(-2px)}
+.scard::before{content:'';position:absolute;top:0;left:0;right:0;height:2px}
+.scard.cc::before{background:linear-gradient(90deg,transparent,var(--cyan),transparent)}
+.scard.cr::before{background:linear-gradient(90deg,transparent,var(--red),transparent)}
+.scard.cg::before{background:linear-gradient(90deg,transparent,var(--green),transparent)}
+.scard.co::before{background:linear-gradient(90deg,transparent,var(--orange),transparent)}
+.scard:hover.cc{border-color:rgba(0,212,255,.4);box-shadow:0 0 20px rgba(0,212,255,.12)}
+.scard:hover.cr{border-color:rgba(255,45,85,.4);box-shadow:0 0 20px rgba(255,45,85,.12)}
+.scard:hover.cg{border-color:rgba(0,255,136,.4);box-shadow:0 0 20px rgba(0,255,136,.12)}
+.scard:hover.co{border-color:rgba(255,140,0,.4)}
+.sc-tl,.sc-br{position:absolute;width:10px;height:10px}
+.sc-tl{top:0;left:0;border-top:1.5px solid var(--cyan);border-left:1.5px solid var(--cyan)}
+.sc-br{bottom:0;right:0;border-bottom:1.5px solid var(--cyan);border-right:1.5px solid var(--cyan)}
+.scard-icon{position:absolute;top:10px;right:12px;font-size:16px;opacity:.1}
+.scard-label{font-size:9px;letter-spacing:3px;text-transform:uppercase;color:var(--text3);margin-bottom:8px}
+.scard-val{font-family:'Orbitron',monospace;font-size:26px;font-weight:800;line-height:1;margin-bottom:4px;transition:color .3s}
+.scard-sub{font-size:11px;color:var(--text2)}
+.col-c{color:var(--cyan)}.col-r{color:var(--red)}.col-g{color:var(--green)}.col-o{color:var(--orange)}.col-p{color:var(--purple)}
+
+/* PANEL */
+.panel{background:var(--panel);border:1px solid var(--border);border-radius:3px;display:flex;flex-direction:column;overflow:hidden}
+.panel-head{display:flex;align-items:center;justify-content:space-between;padding:11px 16px;border-bottom:1px solid var(--border);background:rgba(0,212,255,.02);flex-shrink:0}
+.panel-title{font-family:'Share Tech Mono',monospace;font-size:10px;letter-spacing:2px;text-transform:uppercase;color:var(--cyan);display:flex;align-items:center;gap:6px}
+.panel-title::before{content:'//';color:var(--text3)}
+.pbtn{font-family:'Share Tech Mono',monospace;font-size:9px;letter-spacing:1px;padding:4px 10px;border:1px solid var(--border2);border-radius:2px;background:transparent;color:var(--text2);cursor:pointer;transition:.2s;text-transform:uppercase}
+.pbtn:hover{border-color:var(--cyan);color:var(--cyan)}
+.mid-row{display:grid;grid-template-columns:1.5fr 1fr;gap:14px}
+
+/* ALERT FEED */
+.alert-feed{max-height:175px;overflow-y:auto;padding:6px 16px}
+.alert-feed::-webkit-scrollbar{width:2px}
+.alert-feed::-webkit-scrollbar-thumb{background:var(--border2)}
+@keyframes slideIn{from{opacity:0;transform:translateX(-6px)}to{opacity:1;transform:translateX(0)}}
+.alert-item{display:flex;align-items:flex-start;gap:8px;padding:7px 0;border-bottom:1px solid rgba(10,42,64,.5);animation:slideIn .3s ease}
+.alert-item:last-child{border-bottom:none}
+.alert-icon{font-size:12px;margin-top:1px;flex-shrink:0}
+.alert-title{font-size:11px;font-weight:600;letter-spacing:.5px;margin-bottom:2px}
+.alert-meta{font-family:'Share Tech Mono',monospace;font-size:9px;color:var(--text3);letter-spacing:.5px}
+
+/* TABLE */
+.log-wrap{overflow-x:auto}
+table{width:100%;border-collapse:collapse;font-size:11px}
+th{font-family:'Share Tech Mono',monospace;font-size:9px;letter-spacing:2px;text-transform:uppercase;color:var(--text3);padding:8px 12px;border-bottom:1px solid var(--border);text-align:left;white-space:nowrap}
+td{padding:7px 12px;border-bottom:1px solid rgba(10,42,64,.4);white-space:nowrap;vertical-align:middle}
+tr{transition:background .12s}
+tr:hover td{background:rgba(0,212,255,.03)}
+.td-mono{font-family:'Share Tech Mono',monospace;font-size:10px}
+.td-pl{max-width:190px;overflow:hidden;text-overflow:ellipsis;font-family:'Share Tech Mono',monospace;font-size:10px;color:var(--text2)}
+.badge{font-family:'Share Tech Mono',monospace;font-size:9px;letter-spacing:.5px;padding:2px 7px;border-radius:2px;text-transform:uppercase;border:1px solid;white-space:nowrap}
+.b-block{color:var(--red);border-color:rgba(255,45,85,.35);background:rgba(255,45,85,.07)}
+.b-allow{color:var(--green);border-color:rgba(0,255,136,.35);background:rgba(0,255,136,.07)}
+.b-review{color:var(--orange);border-color:rgba(255,140,0,.35);background:rgba(255,140,0,.07)}
+.b-type{color:var(--cyan);border-color:rgba(0,212,255,.25);background:rgba(0,212,255,.05)}
+.mini-bar{display:inline-block;width:44px;height:3px;background:var(--border2);border-radius:2px;vertical-align:middle;margin-left:4px;overflow:hidden}
+.mini-fill{height:100%;border-radius:2px}
+.empty-msg{text-align:center;padding:32px;color:var(--text3);font-family:'Share Tech Mono',monospace;font-size:10px;letter-spacing:2px}
+
+/* TESTER */
+.tester-body{padding:16px;display:flex;flex-direction:column;gap:12px}
+.qgrid{display:flex;flex-wrap:wrap;gap:5px}
+.qbtn{font-family:'Share Tech Mono',monospace;font-size:9px;letter-spacing:1px;padding:4px 9px;border-radius:2px;border:1px solid var(--border2);background:rgba(0,0,0,.3);color:var(--text2);cursor:pointer;transition:.2s}
+.qbtn:hover{border-color:var(--red);color:var(--red);background:rgba(255,45,85,.05)}
+.qbtn.g:hover{border-color:var(--green);color:var(--green);background:rgba(0,255,136,.05)}
+.qlabel{font-size:9px;letter-spacing:2px;color:var(--text3);text-transform:uppercase;margin-bottom:7px}
+textarea#tinput{width:100%;background:rgba(0,0,0,.4);border:1px solid var(--border2);border-radius:3px;color:var(--cyan);padding:12px;font-family:'Share Tech Mono',monospace;font-size:11px;resize:none;height:68px;transition:.2s;letter-spacing:.5px;display:block}
+textarea#tinput:focus{outline:none;border-color:var(--cyan);box-shadow:0 0 12px rgba(0,212,255,.15)}
+textarea#tinput::placeholder{color:var(--text3)}
+.scan-btn{width:100%;padding:12px;border:1px solid var(--cyan);border-radius:3px;background:rgba(0,212,255,.07);color:var(--cyan);font-family:'Orbitron',monospace;font-size:11px;font-weight:700;letter-spacing:3px;cursor:pointer;transition:.3s;text-transform:uppercase;position:relative;overflow:hidden}
+.scan-btn::before{content:'';position:absolute;top:0;left:-100%;width:100%;height:100%;background:linear-gradient(90deg,transparent,rgba(0,212,255,.12),transparent);transition:.5s}
+.scan-btn:hover::before{left:100%}
+.scan-btn:hover{background:rgba(0,212,255,.14);box-shadow:0 0 20px rgba(0,212,255,.25)}
+@keyframes pulsing{0%,100%{background:rgba(0,212,255,.07)}50%{background:rgba(0,212,255,.18)}}
+.scan-btn.scanning{animation:pulsing .5s ease-in-out infinite}
+@keyframes fadeIn{from{opacity:0;transform:translateY(-4px)}to{opacity:1;transform:translateY(0)}}
+.result-panel{border-radius:3px;border:1px solid var(--border2);padding:14px;display:none}
+.result-panel.show{display:block;animation:fadeIn .3s ease}
+.result-panel.block{border-color:rgba(255,45,85,.5);background:rgba(255,45,85,.05)}
+.result-panel.allow{border-color:rgba(0,255,136,.5);background:rgba(0,255,136,.05)}
+.result-panel.review{border-color:rgba(255,140,0,.5);background:rgba(255,140,0,.05)}
+.result-header{display:flex;align-items:center;gap:10px;margin-bottom:12px}
+.result-action{font-family:'Orbitron',monospace;font-size:15px;font-weight:800;letter-spacing:3px}
+.result-grid{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+.ri-label{font-size:9px;letter-spacing:2px;color:var(--text3);text-transform:uppercase;margin-bottom:3px}
+.ri-val{font-family:'Share Tech Mono',monospace;font-size:11px}
+.score-track{height:4px;background:var(--border2);border-radius:2px;margin-top:12px;overflow:hidden}
+.score-fill{height:100%;border-radius:2px;transition:width .8s cubic-bezier(.4,0,.2,1);width:0%}
+
+/* OFFLINE BANNER */
+.offline-banner{display:none;background:rgba(255,45,85,.08);border:1px solid rgba(255,45,85,.3);border-radius:3px;padding:10px 16px;font-family:'Share Tech Mono',monospace;font-size:10px;color:var(--red);letter-spacing:1px;text-align:center}
+.offline-banner.show{display:block}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<!-- ════ HEADER ════ -->
+<header>
+  <div class="logo-block">
+    <div class="logo-icon">🛡</div>
+    <div>
+      <div class="logo-text">SENTINEL</div>
+      <div class="logo-sub">WAF Intelligence Platform v1.0</div>
+    </div>
+  </div>
+
+  <div class="header-mid">
+    <div class="hstat"><div class="hstat-val" id="h-total">—</div><div class="hstat-lab">Total Requests</div></div>
+    <div class="hdiv"></div>
+    <div class="hstat"><div class="hstat-val col-r" id="h-blocked">—</div><div class="hstat-lab">Blocked</div></div>
+    <div class="hdiv"></div>
+    <div class="hstat"><div class="hstat-val col-g" id="h-allowed">—</div><div class="hstat-lab">Allowed</div></div>
+    <div class="hdiv"></div>
+    <div class="hstat"><div class="hstat-val col-o" id="h-top">—</div><div class="hstat-lab">Top Threat</div></div>
+    <div class="hdiv"></div>
+    <div class="hstat"><div class="hstat-val col-p" id="h-rate">—</div><div class="hstat-lab">Block Rate</div></div>
+  </div>
+
+  <div style="display:flex;align-items:center;gap:18px;flex-shrink:0">
+    <div class="live-badge"><div class="live-dot"></div>LIVE</div>
+    <div class="clock" id="clock">00:00:00</div>
+  </div>
+</header>
+
+<!-- ════ MAIN LAYOUT ════ -->
+<div class="main">
+
+  <!-- ════ SIDEBAR ════ -->
+  <aside class="sidebar">
+
+    <!-- Threat Ring -->
+    <div class="sb-sec">
+      <div class="sb-label">Threat Level</div>
+      <div class="threat-ring">
+        <svg width="120" height="120" viewBox="0 0 120 120">
+          <circle class="ring-bg" cx="60" cy="60" r="52"/>
+          <circle class="ring-fill" id="ring-fill" cx="60" cy="60" r="52"/>
+        </svg>
+        <div class="ring-label">
+          <div class="ring-pct" id="ring-pct">0%</div>
+          <div class="ring-sub" id="ring-lab">MINIMAL</div>
+        </div>
+      </div>
+      <div>
+        <div class="level-row"><span class="level-name col-g">LOW</span><span class="level-val" id="lv-low">0</span></div>
+        <div class="level-track"><div class="level-fill" id="lf-low" style="background:var(--green)"></div></div>
+        <div class="level-row"><span class="level-name col-o">MEDIUM</span><span class="level-val" id="lv-med">0</span></div>
+        <div class="level-track"><div class="level-fill" id="lf-med" style="background:var(--orange)"></div></div>
+        <div class="level-row"><span class="level-name col-r">CRITICAL</span><span class="level-val" id="lv-crit">0</span></div>
+        <div class="level-track"><div class="level-fill" id="lf-crit" style="background:var(--red)"></div></div>
+      </div>
+    </div>
+
+    <!-- Attack vectors -->
+    <div class="sb-sec" style="flex:1;overflow-y:auto">
+      <div class="sb-label">Attack Vectors</div>
+      <div id="atk-list">
+        <div style="color:var(--text3);font-family:'Share Tech Mono',monospace;font-size:10px;letter-spacing:1px">[ NO THREATS YET ]</div>
+      </div>
+    </div>
+
+    <!-- Nav -->
+    <div class="sb-sec">
+      <div class="sb-label">Navigation</div>
+      <div class="nav-item active" onclick="showView('monitor')"><span class="nav-icon">◈</span> Monitor</div>
+      <div class="nav-item" onclick="showView('tester')"><span class="nav-icon">⊕</span> Payload Lab</div>
+      <div class="nav-item" onclick="showView('logs')"><span class="nav-icon">≡</span> Event Log</div>
+    </div>
+
+  </aside>
+
+  <!-- ════ CONTENT ════ -->
+  <div class="content">
+
+    <!-- Connection warning -->
+    <div class="offline-banner" id="offline-banner">
+      ⚠ CANNOT CONNECT TO WAF — Ensure proxy.py is running on port 5000 &nbsp;|&nbsp; python waf\proxy.py
+    </div>
+
+    <!-- ── VIEW: MONITOR ── -->
+    <div id="view-monitor">
+
+      <!-- Stat cards -->
+      <div class="stat-row">
+        <div class="scard cc">
+          <div class="sc-tl"></div><div class="sc-br"></div>
+          <div class="scard-icon">◈</div>
+          <div class="scard-label">Total Intercepted</div>
+          <div class="scard-val col-c" id="s-total">0</div>
+          <div class="scard-sub">All HTTP requests</div>
+        </div>
+        <div class="scard cr">
+          <div class="sc-tl"></div><div class="sc-br"></div>
+          <div class="scard-icon">⊗</div>
+          <div class="scard-label">Threats Blocked</div>
+          <div class="scard-val col-r" id="s-blocked">0</div>
+          <div class="scard-sub" id="s-pct">0% of traffic</div>
+        </div>
+        <div class="scard cg">
+          <div class="sc-tl"></div><div class="sc-br"></div>
+          <div class="scard-icon">✓</div>
+          <div class="scard-label">Clean Requests</div>
+          <div class="scard-val col-g" id="s-allowed">0</div>
+          <div class="scard-sub">Passed inspection</div>
+        </div>
+        <div class="scard co">
+          <div class="sc-tl"></div><div class="sc-br"></div>
+          <div class="scard-icon">⚡</div>
+          <div class="scard-label">Detection Rate</div>
+          <div class="scard-val col-o" id="s-rate">—</div>
+          <div class="scard-sub">ML + OWASP ensemble</div>
+        </div>
+      </div>
+
+      <!-- Charts + alerts row -->
+      <div class="mid-row">
+        <div class="panel">
+          <div class="panel-head">
+            <div class="panel-title">Attack Type Distribution</div>
+            <button class="pbtn" onclick="loadStats()">↻ Sync</button>
+          </div>
+          <div style="padding:16px;height:215px;position:relative">
+            <canvas id="chart-dist"></canvas>
+          </div>
+        </div>
+
+        <div class="panel">
+          <div class="panel-head">
+            <div class="panel-title">Recent Alerts</div>
+            <span style="font-family:'Share Tech Mono',monospace;font-size:9px;color:var(--text3)" id="alert-count">0 events</span>
+          </div>
+          <div class="alert-feed" id="alert-feed">
+            <div class="empty-msg">[ AWAITING THREAT DATA ]</div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Live log -->
+      <div class="panel">
+        <div class="panel-head">
+          <div class="panel-title">Live Event Stream</div>
+          <div style="display:flex;align-items:center;gap:10px">
+            <span style="font-family:'Share Tech Mono',monospace;font-size:9px;color:var(--text3)">Auto-refresh 5s</span>
+            <button class="pbtn" onclick="loadLogs()">↻ Refresh</button>
+          </div>
+        </div>
+        <div class="log-wrap">
+          <table>
+            <thead>
+              <tr><th>#</th><th>Time (UTC)</th><th>Source IP</th><th>Method</th><th>Payload</th><th>Threat Type</th><th>Confidence</th><th>Decision</th></tr>
+            </thead>
+            <tbody id="log-body">
+              <tr><td colspan="8" class="empty-msg">[ NO EVENTS — USE PAYLOAD LAB TO GENERATE DATA ]</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+    </div><!-- /view-monitor -->
+
+    <!-- ── VIEW: PAYLOAD LAB ── -->
+    <div id="view-tester" style="display:none">
+      <div class="panel">
+        <div class="panel-head">
+          <div class="panel-title">Payload Analysis Laboratory</div>
+          <span style="font-family:'Share Tech Mono',monospace;font-size:9px;color:var(--text3)">RF + XGBoost ENSEMBLE · OWASP RULES</span>
+        </div>
+        <div class="tester-body">
+
+          <div>
+            <div class="qlabel">// Malicious Payloads</div>
+            <div class="qgrid">
+              <button class="qbtn" onclick="sp(`' OR 1=1--`)">SQLi Basic</button>
+              <button class="qbtn" onclick="sp(`1 UNION SELECT username,password FROM users`)">SQLi UNION</button>
+              <button class="qbtn" onclick="sp(`' AND SLEEP(5)--`)">SQLi Blind</button>
+              <button class="qbtn" onclick="sp(`admin'--`)">SQLi Auth Bypass</button>
+              <button class="qbtn" onclick="sp(`<script>alert(document.cookie)</script>`)">XSS Script</button>
+              <button class="qbtn" onclick="sp(`<img src=x onerror=alert(1)>`)">XSS onerror</button>
+              <button class="qbtn" onclick="sp(`<svg onload=alert(1)>`)">XSS SVG</button>
+              <button class="qbtn" onclick="sp(`javascript:alert('xss')`)">XSS JS URI</button>
+              <button class="qbtn" onclick="sp(`../../etc/passwd`)">LFI Traversal</button>
+              <button class="qbtn" onclick="sp(`php://filter/convert.base64-encode/resource=index.php`)">LFI PHP</button>
+              <button class="qbtn" onclick="sp(`;whoami`)">RCE whoami</button>
+              <button class="qbtn" onclick="sp(`| cat /etc/passwd`)">RCE Pipe</button>
+              <button class="qbtn" onclick="sp(`\`id\``)">RCE Backtick</button>
+              <button class="qbtn" onclick="sp(`http://127.0.0.1/admin`)">SSRF Local</button>
+              <button class="qbtn" onclick="sp(`http://169.254.169.254/latest/meta-data`)">SSRF Metadata</button>
+              <button class="qbtn" onclick="sp(`gopher://localhost:6379/_PING`)">SSRF Gopher</button>
+              <button class="qbtn" onclick="sp(`<!DOCTYPE foo [<!ENTITY x SYSTEM 'file:///etc/passwd'>]>`)">XXE Entity</button>
+              <button class="qbtn" onclick="sp(`SeLeCt * FrOm users`)">Evasion Case</button>
+              <button class="qbtn" onclick="sp(`%27%20OR%201%3D1--`)">Evasion Encoded</button>
+              <button class="qbtn" onclick="sp(`SEL/**/ECT * FROM users`)">Evasion Comment</button>
+            </div>
+            <div class="qlabel" style="margin-top:12px">// Benign Traffic</div>
+            <div class="qgrid">
+              <button class="qbtn g" onclick="sp(`?q=machine+learning+tutorial`)">Search</button>
+              <button class="qbtn g" onclick="sp(`?username=alice&password=secure123`)">Login</button>
+              <button class="qbtn g" onclick="sp(`?id=42&category=laptops&sort=price`)">Product</button>
+              <button class="qbtn g" onclick="sp(`?page=3&limit=20&offset=40`)">Pagination</button>
+              <button class="qbtn g" onclick="sp(`?lang=en&region=US&uid=123`)">Locale</button>
+              <button class="qbtn g" onclick="sp(`?min=100&max=5000&brand=samsung`)">Filter</button>
+            </div>
+          </div>
+
+          <div>
+            <div class="qlabel">// Input Payload &nbsp;<span style="color:var(--text3);font-size:8px">(Ctrl+Enter to scan)</span></div>
+            <textarea id="tinput" placeholder="// Paste any payload here to analyze..."></textarea>
+          </div>
+
+          <button class="scan-btn" id="scan-btn" onclick="runScan()">⬡ &nbsp; INITIATE SCAN</button>
+
+          <div class="result-panel" id="result-panel">
+            <div class="result-header">
+              <span style="font-size:20px" id="r-icon">⊗</span>
+              <div class="result-action" id="r-action">—</div>
+              <div style="flex:1"></div>
+              <div style="font-family:'Share Tech Mono',monospace;font-size:9px;color:var(--text3)" id="r-time"></div>
+            </div>
+            <div class="result-grid">
+              <div>
+                <div class="ri-label">Confidence Score</div>
+                <div class="ri-val" id="r-score">—</div>
+              </div>
+              <div>
+                <div class="ri-label">Attack Category</div>
+                <div class="ri-val" id="r-type">—</div>
+              </div>
+              <div style="grid-column:1/-1">
+                <div class="ri-label">Payload Analyzed</div>
+                <div class="ri-val" id="r-payload" style="word-break:break-all;color:var(--text2)">—</div>
+              </div>
+            </div>
+            <div class="score-track"><div class="score-fill" id="r-bar"></div></div>
+          </div>
+
+        </div>
+      </div>
+    </div><!-- /view-tester -->
+
+    <!-- ── VIEW: EVENT LOG ── -->
+    <div id="view-logs" style="display:none">
+      <div class="panel">
+        <div class="panel-head">
+          <div class="panel-title">Full Event Log</div>
+          <button class="pbtn" onclick="loadFullLogs()">↻ Refresh</button>
+        </div>
+        <div class="log-wrap">
+          <table>
+            <thead>
+              <tr><th>#</th><th>Timestamp</th><th>IP</th><th>Method</th><th>Path</th><th>Payload</th><th>Attack</th><th>Score</th><th>Decision</th></tr>
+            </thead>
+            <tbody id="log-body-full">
+              <tr><td colspan="9" class="empty-msg">[ NO EVENTS LOGGED ]</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div><!-- /view-logs -->
+
+  </div><!-- /content -->
+</div><!-- /main -->
+</div><!-- /wrap -->
+
+<script>
+// ══ CONFIG ══════════════════════════════════════════════════════════════════
+const WAF = 'https://waf-sentinel.onrender.com/waf-dashboard';
+const ATK_COLORS = {
+  sqli:'#ff2d55', xss:'#ff8c00', lfi:'#ffe600', rce:'#9b59ff',
+  ssrf:'#00d4ff', xxe:'#00ff88', cmdi:'#ff6b9d',
+  benign:'#1a3a50', unknown:'#2a5070'
+};
+let distChart = null;
+let isOnline  = true;
+
+// ══ CLOCK ═══════════════════════════════════════════════════════════════════
+function tick(){
+  document.getElementById('clock').textContent = new Date().toTimeString().slice(0,8);
+}
+setInterval(tick, 1000); tick();
+
+// ══ VIEW SWITCHING ════════════════════════════════════════════════════════
+function showView(v){
+  ['monitor','tester','logs'].forEach(id => {
+    document.getElementById('view-'+id).style.display = id === v ? '' : 'none';
+  });
+  document.querySelectorAll('.nav-item').forEach((el,i) => {
+    el.classList.toggle('active', ['monitor','tester','logs'][i] === v);
+  });
+  if(v === 'logs') loadFullLogs();
+}
+
+// ══ STATS ════════════════════════════════════════════════════════════════
+async function loadStats(){
+  try {
+    const r = await fetch(`${WAF}/stats`, { signal: AbortSignal.timeout(4000) });
+    const d = await r.json();
+    setOnline(true);
+
+    const total   = d.total   || 0;
+    const blocked = d.blocked || 0;
+    const allowed = d.allowed || 0;
+    const pct     = total ? Math.round(blocked / total * 100) : 0;
+    const rate    = total ? (blocked / total * 100).toFixed(1) + '%' : '—';
+
+    // Header
+    document.getElementById('h-total').textContent   = total;
+    document.getElementById('h-blocked').textContent = blocked;
+    document.getElementById('h-allowed').textContent = allowed;
+    document.getElementById('h-rate').textContent    = rate;
+
+    // Cards
+    document.getElementById('s-total').textContent   = total;
+    document.getElementById('s-blocked').textContent = blocked;
+    document.getElementById('s-allowed').textContent = allowed;
+    document.getElementById('s-pct').textContent     = `${pct}% of traffic`;
+    document.getElementById('s-rate').textContent    = rate;
+
+    // Top threat
+    const types  = d.by_type || {};
+    const sorted = Object.entries(types).filter(([k]) => k !== 'benign').sort((a,b) => b[1]-a[1]);
+    document.getElementById('h-top').textContent = sorted.length ? sorted[0][0].toUpperCase() : '—';
+
+    // Threat ring
+    updateRing(pct);
+
+    // Level bars
+    const low  = allowed;
+    const med  = Math.round(blocked * 0.3);
+    const crit = Math.round(blocked * 0.7);
+    const mx   = Math.max(low, med, crit, 1);
+    document.getElementById('lv-low').textContent  = low;
+    document.getElementById('lv-med').textContent  = med;
+    document.getElementById('lv-crit').textContent = crit;
+    document.getElementById('lf-low').style.width  = (low/mx*100)  + '%';
+    document.getElementById('lf-med').style.width  = (med/mx*100)  + '%';
+    document.getElementById('lf-crit').style.width = (crit/mx*100) + '%';
+
+    // Sidebar attack list
+    buildAtkList(types, sorted);
+
+    // Chart
+    buildDistChart(sorted);
+
+    // Alert feed
+    buildAlertFeed(d.recent || []);
+
+    // Stream log
+    loadLogs();
+
+  } catch(e) {
+    setOnline(false);
+  }
+}
+
+function updateRing(pct){
+  const circumference = 2 * Math.PI * 52; // ~327
+  const offset = circumference - (pct / 100) * circumference;
+  const fill   = document.getElementById('ring-fill');
+  const pctEl  = document.getElementById('ring-pct');
+  const labEl  = document.getElementById('ring-lab');
+  const color  = pct > 70 ? 'var(--red)' : pct > 35 ? 'var(--orange)' : 'var(--cyan)';
+
+  fill.style.strokeDashoffset = offset;
+  fill.style.stroke           = color;
+  pctEl.textContent           = pct + '%';
+  pctEl.style.color           = color;
+  labEl.textContent           = pct > 70 ? 'CRITICAL' : pct > 35 ? 'ELEVATED' : 'MINIMAL';
+}
+
+function buildAtkList(types, sorted){
+  if(!sorted.length){
+    document.getElementById('atk-list').innerHTML =
+      '<div style="color:var(--text3);font-family:\'Share Tech Mono\',monospace;font-size:10px;letter-spacing:1px">[ NO THREATS YET ]</div>';
+    return;
+  }
+  const max = sorted[0][1] || 1;
+  document.getElementById('atk-list').innerHTML = sorted.map(([k,v]) => `
+    <div class="atk-item">
+      <div class="atk-dot" style="background:${ATK_COLORS[k]||'#888'}"></div>
+      <div class="atk-name" style="color:${ATK_COLORS[k]||'#888'}">${k}</div>
+      <div class="atk-bar-wrap"><div class="atk-bar" style="width:${Math.round(v/max*100)}%;background:${ATK_COLORS[k]||'#888'}"></div></div>
+      <div class="atk-count">${v}</div>
+    </div>`).join('');
+}
+
+function buildDistChart(sorted){
+  if(!sorted.length) return;
+  const labels = sorted.map(([k]) => k.toUpperCase());
+  const values = sorted.map(([,v]) => v);
+  const colors = sorted.map(([k]) => ATK_COLORS[k] || '#888');
+
+  if(distChart) distChart.destroy();
+  const ctx = document.getElementById('chart-dist').getContext('2d');
+  distChart = new Chart(ctx, {
+    type: 'bar',
+    data: {
+      labels,
+      datasets: [{
+        data: values,
+        backgroundColor: colors.map(c => c + '22'),
+        borderColor: colors,
+        borderWidth: 1.5,
+        borderRadius: 2,
+        hoverBackgroundColor: colors.map(c => c + '44'),
+      }]
+    },
+    options: {
+      responsive: true,
+      maintainAspectRatio: false,
+      plugins: {
+        legend: { display: false },
+        tooltip: {
+          backgroundColor: '#06101a',
+          borderColor: '#0d3a58',
+          borderWidth: 1,
+          titleColor: '#00d4ff',
+          bodyColor: '#c8e8f8',
+          titleFont: { family: 'Share Tech Mono', size: 10 },
+          bodyFont:  { family: 'Share Tech Mono', size: 11 },
+          callbacks: {
+            label: ctx => ` ${ctx.parsed.y} detections`
+          }
+        }
+      },
+      scales: {
+        x: {
+          ticks: { color: '#5a8aa8', font: { family: 'Share Tech Mono', size: 9 } },
+          grid:  { color: 'rgba(10,42,64,.4)' }
+        },
+        y: {
+          ticks: { color: '#5a8aa8', font: { family: 'Share Tech Mono', size: 9 } },
+          grid:  { color: 'rgba(10,42,64,.4)' },
+          beginAtZero: true
+        }
+      }
+    }
+  });
+}
+
+function buildAlertFeed(recent){
+  const blocked = recent.filter(r => r.action && r.action.includes('BLOCK'));
+  document.getElementById('alert-count').textContent = blocked.length + ' events';
+  if(!blocked.length){
+    document.getElementById('alert-feed').innerHTML =
+      '<div class="empty-msg">[ NO THREATS DETECTED ]</div>';
+    return;
+  }
+  document.getElementById('alert-feed').innerHTML = blocked.slice(0,12).map(r => {
+    const t = r.timestamp ? r.timestamp.substring(11,19) : '—';
+    return `<div class="alert-item">
+      <div class="alert-icon">🔴</div>
+      <div>
+        <div class="alert-title col-r">THREAT BLOCKED — ${r.action}</div>
+        <div class="alert-meta">${t} UTC</div>
+      </div>
+    </div>`;
+  }).join('');
+}
+
+// ══ LOGS ════════════════════════════════════════════════════════════════════
+function renderLogRow(l, full=false){
+  const action = l.action || '';
+  const bc     = action.includes('BLOCK') ? 'b-block' : action === 'ALLOW' ? 'b-allow' : 'b-review';
+  const score  = parseFloat(l.score) || 0;
+  const fc     = score > .85 ? 'var(--red)' : score > .65 ? 'var(--orange)' : 'var(--green)';
+  const t      = l.timestamp ? l.timestamp.substring(11,19) : '—';
+  const base   = `
+    <td class="td-mono" style="color:var(--text3)">${l.id}</td>
+    <td class="td-mono" style="color:var(--text3)">${t}</td>
+    <td class="td-mono">${l.ip||'—'}</td>
+    <td><span class="badge b-type">${l.method||'GET'}</span></td>`;
+  const payload = `<td class="td-pl" title="${(l.payload||'').replace(/"/g,'&quot;')}">${l.payload||'—'}</td>`;
+  const rest    = `
+    <td><span class="badge b-type">${l.attack_type||'—'}</span></td>
+    <td class="td-mono">${score.toFixed(3)}<span class="mini-bar"><span class="mini-fill" style="width:${Math.round(score*100)}%;background:${fc}"></span></span></td>
+    <td><span class="badge ${bc}">${action}</span></td>`;
+  if(full){
+    const path = `<td class="td-mono" style="color:var(--text3)">${l.path||'/'}</td>`;
+    return `<tr>${base}${path}${payload}${rest}</tr>`;
+  }
+  return `<tr>${base}${payload}${rest}</tr>`;
+}
+
+async function loadLogs(){
+  try {
+    const r    = await fetch(`${WAF}/logs`, { signal: AbortSignal.timeout(4000) });
+    const logs = await r.json();
+    const tbody = document.getElementById('log-body');
+    if(!tbody) return;
+    if(!logs.length){
+      tbody.innerHTML = '<tr><td colspan="8" class="empty-msg">[ NO EVENTS YET — TEST PAYLOADS IN THE LAB ]</td></tr>';
+    } else {
+      tbody.innerHTML = logs.map(l => renderLogRow(l)).join('');
+    }
+  } catch(e) {}
+}
+
+async function loadFullLogs(){
+  try {
+    const r    = await fetch(`${WAF}/logs`, { signal: AbortSignal.timeout(4000) });
+    const logs = await r.json();
+    const tbody = document.getElementById('log-body-full');
+    if(!tbody) return;
+    if(!logs.length){
+      tbody.innerHTML = '<tr><td colspan="9" class="empty-msg">[ NO EVENTS LOGGED ]</td></tr>';
+    } else {
+      tbody.innerHTML = logs.map(l => renderLogRow(l, true)).join('');
+    }
+  } catch(e) {}
+}
+
+// ══ ONLINE/OFFLINE ════════════════════════════════════════════════════════
+function setOnline(v){
+  isOnline = v;
+  document.getElementById('offline-banner').classList.toggle('show', !v);
+}
+
+// ══ PAYLOAD TESTER ════════════════════════════════════════════════════════
+function sp(p){ document.getElementById('tinput').value = p; }
+
+async function runScan(){
+  const payload = document.getElementById('tinput').value.trim();
+  if(!payload) return;
+
+  const btn = document.getElementById('scan-btn');
+  btn.textContent = '◌  SCANNING...';
+  btn.classList.add('scanning');
+  btn.disabled = true;
+
+  try {
+    const r = await fetch(`${WAF}/test`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ payload }),
+      signal: AbortSignal.timeout(8000)
+    });
+    const d = await r.json();
+    setOnline(true);
+
+    const action = d.action || 'ALLOW';
+    const score  = d.score  || 0;
+
+    const panel = document.getElementById('result-panel');
+    panel.className = 'result-panel show ' + (action==='BLOCK'?'block':action==='ALLOW'?'allow':'review');
+
+    const iconMap   = { BLOCK:'⊗', ALLOW:'✓', REVIEW:'⚠' };
+    const colorMap  = { BLOCK:'var(--red)', ALLOW:'var(--green)', REVIEW:'var(--orange)' };
+    const barColor  = score > .85 ? 'var(--red)' : score > .65 ? 'var(--orange)' : 'var(--green)';
+
+    document.getElementById('r-icon').textContent   = iconMap[action]  || '?';
+    document.getElementById('r-action').textContent = action;
+    document.getElementById('r-action').style.color = colorMap[action] || 'var(--cyan)';
+    document.getElementById('r-score').textContent  = (score*100).toFixed(1) + '% confidence';
+    document.getElementById('r-type').textContent   = (d.attack_type || 'benign').toUpperCase();
+    document.getElementById('r-payload').textContent= payload.length > 100 ? payload.slice(0,100)+'…' : payload;
+    document.getElementById('r-time').textContent   = new Date().toTimeString().slice(0,8) + ' UTC';
+
+    const bar = document.getElementById('r-bar');
+    bar.style.background = barColor;
+    bar.style.width      = '0%';
+    setTimeout(() => { bar.style.width = (score*100)+'%'; }, 60);
+
+    // Refresh data
+    loadStats();
+  } catch(e) {
+    setOnline(false);
+    alert('⚠ Cannot reach WAF — make sure proxy.py is running:\n\npython waf\\proxy.py');
+  }
+
+  btn.textContent = '⬡  INITIATE SCAN';
+  btn.classList.remove('scanning');
+  btn.disabled = false;
+}
+
+// Ctrl+Enter shortcut
+document.addEventListener('keydown', e => {
+  if(e.ctrlKey && e.key === 'Enter') runScan();
+});
+
+// ══ INIT ══════════════════════════════════════════════════════════════════
+loadStats();
+setInterval(loadStats, 5000);
+</script>
+</body>
+</html>
